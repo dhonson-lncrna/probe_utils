@@ -1,4 +1,4 @@
-from rap_utils import *
+from .rap_utils import *
 
 __author__ = 'Drew Honson'
 __email__ = 'dhonson@lncrna.caltech.edu'
