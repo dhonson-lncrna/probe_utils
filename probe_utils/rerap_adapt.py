@@ -23,4 +23,4 @@ def rerap_bulk(re_ls,
         name_ls.append(i + '_top')
         name_ls.append(i + '_bot')
         
-    return pd.DataFrame({'Name':name_ls, 'Site':site_ls})
+    return pd.DataFrame({'Name':name_ls, 'Sequence':site_ls})
