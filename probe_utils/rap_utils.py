@@ -65,7 +65,7 @@ def rap_probes(seq, gene, probe_length = 90):
     
     # If there is more than a quarter probe of gene left uncovered, add one last probe 
     if len(seq) - inds[-1] > probe_length / 4 : 
-        s_seq.append(seq[-90:])
+        s_seq.append(seq[-1*probe_length:])
     
     else:
         pass
