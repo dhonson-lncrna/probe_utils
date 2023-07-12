@@ -70,7 +70,7 @@ def rap_probes(fasta,
         seq = seq[:-1]
 
     # Convert to sequence object
-    seq = Seq(xist)
+    seq = Seq(seq)
     
     # Extract indices of the desired probe length
     inds = np.arange(0, len(seq), probe_length-len(adaptseq))
@@ -98,8 +98,8 @@ def rap_probes(fasta,
     # Export fasta
     with open(gene + '_prefilt.fasta','w') as p:
         for i,v in enumerate(s_seq):
-            f.write('>'+prb_nms[i]+'\n')
-            f.write(v + '\n')
+            p.write('>'+prb_nms[i]+'\n')
+            p.write(v + '\n')
             
     # Add adapt seq
     s_seq = [adaptseq + i for i in s_seq]
