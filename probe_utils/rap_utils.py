@@ -1,4 +1,5 @@
 from Bio import SeqIO
+from Bio.Seq import Seq
 from Bio.SeqFeature import FeatureLocation
 from Bio.SeqFeature import CompoundLocation
 
@@ -50,10 +51,29 @@ def exon_intron(genbank, gene, _type_="ncRNA"):
 
     return mat_rna, introns
 
-def rap_probes(seq, gene, probe_length = 90):
+def rap_probes(fasta, 
+               gene, 
+               adaptseq = 'CAAGTCA',
+               probe_length = 90):
     '''Takes a sequence and makes probes of a given length'''
+    # Read file
+    with open(fasta,'r') as f:
+        seq = f.readlines()
+
+    # Remove header and newlines
+    seq = seq[1:-1]
+    seq = [i[:-1] for i in seq]
+    seq = ''.join(seq)
+
+    # Remove polyA tail
+    while seq[-1] == 'A':
+        seq = seq[:-1]
+
+    # Convert to sequence object
+    seq = Seq(xist)
+    
     # Extract indices of the desired probe length
-    inds = np.arange(0, len(seq), probe_length)
+    inds = np.arange(0, len(seq), probe_length-len(adaptseq))
     
     s_list = []
     
@@ -73,7 +93,16 @@ def rap_probes(seq, gene, probe_length = 90):
     s_seq = [str(i.reverse_complement()) for i in s_seq]
     
     # Name the probes and return a dataframe
-    prb_nms = [gene + str(i+1) for i in range(len(s_seq))]
+    prb_nms = [gene + '_' + str(i+1) for i in range(len(s_seq))]
+    
+    # Export fasta
+    with open(gene + '_prefilt.fasta','w') as p:
+        for i,v in enumerate(s_seq):
+            f.write('>'+prb_nms[i]+'\n')
+            f.write(v + '\n')
+            
+    # Add adapt seq
+    s_seq = [adaptseq + i for i in s_seq]
     
     return pd.DataFrame({'Name':prb_nms,
                         'Sequence':s_seq})
