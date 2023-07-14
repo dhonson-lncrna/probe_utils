@@ -84,7 +84,7 @@ def rap_probes(fasta,
     s_seq = [seq[i] for i in s_list]
     
     # If there is more than a quarter probe of gene left uncovered, add one last probe 
-    if len(seq) - inds[-1] > (probe_length-len(adaptseq) / 4 : 
+    if len(seq) - inds[-1] > (probe_length-len(adaptseq)) / 4 : 
         s_seq.append(seq[-1*(probe_length-len(adaptseq)):])
     
     else:
