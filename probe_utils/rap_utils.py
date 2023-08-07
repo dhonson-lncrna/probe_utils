@@ -7,11 +7,19 @@ import numpy as np
 from tqdm import tqdm
 
 import sys
+import os
 import time
 import threading
 import requests
 
 class Spinner:
+    '''
+    Spinning progress wheel used for DFAM step
+    Taken from: https://stackoverflow.com/questions/4995733/
+    how-to-create-a-spinning-command-line-cursor
+    
+    '''
+    
     busy = False
     delay = 0.1
 
@@ -45,6 +53,7 @@ class Spinner:
 def blatfilt(seq,
              genome,
              probels,
+             log=None,
              tolerance=25):
     '''
     Runs UCSC Blat to remove probes with off-target homology
@@ -62,6 +71,11 @@ def blatfilt(seq,
     probels : list of strings
         List of probes to be analyzed
         
+    log : file object or None
+        Log file to store BLAT progress. If None, blatfilt() 
+        will generate a log file. If open file object, BLAT will
+        append to an existing text file.
+        
     tolerance : int
         Number of acceptable matches to other genomic loc. Default 25
         
@@ -73,6 +87,11 @@ def blatfilt(seq,
         did not
         
     '''
+    # Generate log if needed
+    if log == None:
+        log = open('blatFiltLog.out','w')   
+    else:
+        pass
     
     # BLAT full sequence to identify gene location
     if len(seq) > 8000:
@@ -85,14 +104,26 @@ def blatfilt(seq,
     else:
         seqloc = blat(seq, assembly=genome, verbose=False).loc[0]
     
+    # Update log with gene location
+    log.writelines('BLAT Results\n')
+    
+    startend = '-'.join([str(seqloc['start']),str(seqloc['end'])])
+    strand = ' (' + seqloc['strand'] + ')'
+    locus = seqloc['chromosome'] + ':' + startend + strand
+    
+    log.writelines('Identified locus: ' + locus + '\n')
+    
     # Check whether entire sequence is present in the indicated genome
+    percmatch = str(seqloc['%_matched']) + '%'
+    log.writelines('Genome Match: ' + percmatch + '\n')
+    
     if seqloc['%_matched'] != 100:
-        percmatch = str(seqlococ['%_matched']) + '%'
         matcherr = input('The submitted sequence had only a ' + percmatch + 
                          ' match to the target genome.\n Proceed anyway? [Y/N]')
         if matcherr == 'Y':
-            pass
+            log.writelines('Continued with BLAT filtering\n')
         else:
+            log.writelines('Probe generation cancelled by user\n')
             raise Exception('Job cancelled.')
     else:
         pass
@@ -197,7 +228,9 @@ def blatfilt(seq,
     return keepdf, dropdf
 
 def dfamfilt(probels,
-             species):
+             species,
+             directory,
+             log=None):
     '''
     Runs RAP probes through DFAM database to remove 
     probes to repetitive elements
@@ -212,6 +245,14 @@ def dfamfilt(probels,
         DFAM species to check repeats, e.g. "Homo sapiens",
         "Mus musculus", or "Drosophila melanogaster"
         
+    directory : str
+        Path to the directory in which to store the results
+        
+    log : file object or None
+        Log file to store DFAM progress. If None, dfamfilt() 
+        will generate a log file. If open file object, DFAM will
+        append to an existing text file.
+        
     Returns
     _______
     
@@ -222,7 +263,16 @@ def dfamfilt(probels,
         A csv containing DFAM results for probes with repeats.
         
     '''
+    # Generate log file
+    if log == None:
+        log = open(directory + 'dfamFiltLog.out','w')   
+    else:
+        pass
+        
+    # Update log
+    log.writelines('Dfam Results\n')
     
+    # Submit sequences to DFAM
     url = "https://dfam.org/api/searches"
     
     ls = ['>'+str(i)+'\n'+v for i,v in enumerate(probels)]
@@ -231,33 +281,37 @@ def dfamfilt(probels,
     params = {'sequence':sequence_data,
               'organism':species,
               'cutoff':'curated'}
-
+    
+    # Pull submission ID
     response = requests.post(url, json=params)
     results = response.json()['id']
     
+    # Retrieve submission results
     api_url = f"https://dfam.org/api/searches/{results}"
 
     response = requests.get(api_url)
 
     if response.status_code == 200:
+        log.writelines('Search submitted successfully\n')
         print("Search submitted successfully.")
         # Process and use the result data as needed
     else:
-        raise Exception("Failed to retrieve DFAM result. Status code: " + response.status_code)
+        errmessage = "Failed to retrieve DFAM result. Status code: " + response.status_code
+        log.writelines(errmessage + '\n')
+        raise Exception(errmessage)
         
     # Dfam for multiple sequences takes some time
     # Attempt to get response until job finished
     response = requests.get(api_url)
     x = response.json()['duration']
-
-    print('Dfam Starting')
     
     with Spinner():
         while x == 'Not finished':
             time.sleep(2)
             response = requests.get(api_url)
             x = response.json()['duration']
-
+    
+    log.writelines('Dfam search time: ' + x+ '\n')
     print('DFAM Done')
     
     results = response.json()['results']
@@ -285,7 +339,7 @@ def dfamfilt(probels,
                 
     # Export DFAM results
     df = pd.DataFrame(drop_dict)
-    df.to_csv('dfamFailedProbes.csv',index=False)
+    df.to_csv(directory + '/dfamFailedProbes.csv',index=False)
     
     return keep_probes, drop_probes
 
@@ -374,10 +428,16 @@ def rap_probes(fasta,
         results for probes that did not pass filters
     
     '''
+    # Create directory to store results
+    dirname = gene + '_rapProbesOutput'
+    if os.path.exists(dirname):
+        pass
+    else:
+        os.mkdir(dirname)
     
     # Create log file
-    log = open('rapProbesLog.out','w')
-    log.writelines('Probe Design Log for ' + gene)
+    log = open(dirname + '/rapProbesLog.out','w')
+    log.writelines('Probe Design Log for ' + gene + '\n')
     
     # Read file
     with open(fasta,'r') as f:
@@ -406,7 +466,8 @@ def rap_probes(fasta,
     # Use those indices to make probes
     s_seq = [seq[i] for i in s_list]
     
-    # If there is more than a quarter probe of gene left uncovered, add one last probe 
+    # If there is more than a quarter probe of gene left uncovered, 
+    # add one last probe 
     if len(seq) - inds[-1] > (probe_length-len(adaptseq)) / 4 : 
         s_seq.append(seq[-1*(probe_length-len(adaptseq)):])
     
@@ -416,29 +477,32 @@ def rap_probes(fasta,
     s_seq = [str(i.reverse_complement()) for i in s_seq]
     
     # Update log
-    log.writelines('Original probes generated: ' + str(len(s_seq)))
+    log.writelines('Original probes generated: ' + 
+                   str(len(s_seq)) + '\n')
     
     # Filter with BLAT
     if blat == True:
+        log.writelines('\n')
         print('Starting BLAT')
         keepdf, dropdf = blatfilt(seq,
                                  kwargs['genome'],
                                  s_seq,
+                                 log=log,
                                  tolerance=25)
         
         # Export probes
-        dropdf.to_csv('blatFailedProbes.csv',index=False)
-        keepdf.to_csv('blatPassedProbes.csv',index=False)
-        
-        # Update log
-        log.writelines('Probes removed by BLAT: ' + 
-                       str(len(dropdf)))
-        log.writelines('Probes remaining after BLAT: ' + 
-                       str(len(keepdf)))
+        dropdf.to_csv(dirname + '/blatFailedProbes.csv',
+                      index=False)
+        keepdf.to_csv(dirname + '/blatPassedProbes.csv',
+                      index=False)
         
         # Update seq list
         blatkeep = np.unique(keepdf['qName'])
         s_seq = [s_seq[int(i)] for i in blatkeep]
+        
+        # Update log
+        log.writelines('Probes remaining after BLAT: ' + 
+                       str(len(blatkeep)) + '\n')
         
         print('BLAT Done')
         
@@ -447,14 +511,16 @@ def rap_probes(fasta,
     
     # Filter with Dfam
     if dfam == True:
+        log.writelines('\n')
         print('Starting Dfam')
-        keep_probes, drop_probes = dfamfilt(s_seq, kwargs['species'])
+        keep_probes, drop_probes = dfamfilt(s_seq, 
+                                            kwargs['species'],
+                                            dirname,
+                                            log=log)
         
         # Update log
-        log.writelines('Probes removed by Dfam: ' + 
-                       str(len(drop_probes)))
         log.writelines('Probes remaining after Dfam: ' + 
-                      str(len(keep_probes)))
+                      str(len(keep_probes)) + '\n')
         
         # Update seq list
         s_seq = [s_seq[int(i)] for i in keep_probes]
@@ -462,8 +528,11 @@ def rap_probes(fasta,
     else:
         pass
     
-    # Name the probes and return a dataframe
-    prb_nms = [gene + '_' + str(i+1) for i in range(len(s_seq))]
+    # Close log
+    log.close()
+    
+    # Generate final probe names
+    prb_nms = [gene + '_' + str(i) for i in range(len(s_seq))]
             
     # Add adapt seq
     s_seq = [adaptseq + i for i in s_seq]
@@ -475,11 +544,15 @@ def rap_probes(fasta,
     else:
         pass
     
+    # Generate pandas dataframe and export to csv
     fname = gene + '_' + str(probe_length) + 'ntProbes.csv'
+    fname = os.path.join(dirname,fname)
     
     df =  pd.DataFrame({'Name':prb_nms,
                         'Sequence':s_seq})
     
     df.to_csv(fname, index=False)
+    
+    print('Probe generation complete')
     
     return df
